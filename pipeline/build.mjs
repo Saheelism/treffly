@@ -10,7 +10,7 @@ const [, , GTFS_DIR = 'gtfs', OUT_DIR = 'public/data'] = process.argv;
 
 // ---------- settings ----------
 // Hubs (meeting stations and walk-in points): rail, S-Bahn, U-Bahn and tram stations in this box.
-const HUB_BOX = { minLat: 47.98, maxLat: 48.26, minLon: 11.36, maxLon: 11.80 };
+const HUB_BOX = { minLat: 47.98, maxLat: 48.28, minLon: 11.36, maxLon: 11.80 };
 // Connections are kept inside a larger box so routes may pass just outside the city.
 const NET_BOX = { minLat: 47.85, maxLat: 48.40, minLon: 11.15, maxLon: 12.00 };
 const WALK_M_PER_MIN = 75; // about 4.5 km/h
