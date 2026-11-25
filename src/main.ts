@@ -1,5 +1,6 @@
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import './style.css';
 import { Planner, type Network, type Person, type Place, type Result, distM } from './fair';
 import { dict, detectLang, type Lang } from './i18n';
@@ -57,6 +58,7 @@ function addPerson(name?: string, place: Place | null = null, label = '') {
 }
 
 // ---------- map ----------
+maplibregl.setWorkerUrl(workerUrl);
 const map = new maplibregl.Map({
   container: 'map',
   style: 'https://tiles.openfreemap.org/styles/positron',
@@ -431,3 +433,6 @@ render();
 
 // keep distM referenced for tree-shaking clarity
 void distM;
+
+// A pasted share link on an open page only changes the hash; reload so it is read fresh.
+window.addEventListener('hashchange', () => location.reload());
