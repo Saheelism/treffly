@@ -70,7 +70,7 @@ let mapReady = false;
 const personMarkers = new Map<number, maplibregl.Marker>();
 let meetMarker: maplibregl.Marker | null = null;
 
-map.on('load', () => {
+map.once('style.load', () => {
   mapReady = true;
   map.addSource('links', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   // walking: dotted line in the person's colour
