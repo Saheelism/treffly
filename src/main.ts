@@ -323,7 +323,9 @@ function writeHash() {
 }
 function readHash() {
   const q = new URLSearchParams(location.hash.slice(1));
-  if (q.get('s') && S.net!.slots.some((s) => s.id === q.get('s'))) S.slot = q.get('s')!;
+  const legacy: Record<string, string> = { 'weekend-day': 'saturday-afternoon' }; // links from the first version
+  const qs = legacy[q.get('s') || ''] || q.get('s');
+  if (qs && S.net!.slots.some((s) => s.id === qs)) S.slot = qs;
   if (q.get('c') && CAPS.includes(+q.get('c')!)) S.cap = +q.get('c')!;
   const p = q.get('p');
   if (!p) return false;
@@ -369,7 +371,7 @@ function render() {
       </section>
       <section>
         <h2>${T.when}</h2>
-        <div class="seg">${S.net.slots.map((s) => `<button data-act="slot" data-v="${s.id}" class="${S.slot === s.id ? 'on' : ''}">${esc(s.label[S.lang])}</button>`).join('')}</div>
+        ${whenHtml()}
         <h3>${T.maxTime}</h3>
         <div class="seg small">${CAPS.map((c) => `<button data-act="cap" data-v="${c}" class="${S.cap === c ? 'on' : ''}">${c} ${T.min}</button>`).join('')}</div>
       </section>
@@ -449,10 +451,33 @@ function resultsHtml() {
     <button class="share" data-act="share">${T.share}</button>`;
 }
 
+const DAY_IDS = ['weekday', 'saturday', 'sunday'];
+const TIME_IDS = ['morning', 'midday', 'afternoon', 'evening', 'night'];
+const slotParts = () => { const [d, tm] = S.slot.split('-'); return { d, tm }; };
+function whenHtml() {
+  const T = t();
+  const { d, tm } = slotParts();
+  const has = (id: string) => S.net!.slots.some((s) => s.id === id);
+  return `<div class="seg">${DAY_IDS.filter((x) => has(`${x}-${tm}`) || TIME_IDS.some((y) => has(`${x}-${y}`))).map((x) => `<button data-act="day" data-v="${x}" class="${d === x ? 'on' : ''}">${T.days[x]}</button>`).join('')}</div>
+    <div class="times">${TIME_IDS.filter((y) => has(`${d}-${y}`)).map((y) => `<button data-act="time" data-v="${y}" class="${tm === y ? 'on' : ''}"><b>${T.times[y]}</b><span>${T.timeHints[y]}</span></button>`).join('')}</div>`;
+}
+/** Slot that fits the current day and time in Munich. */
+function slotForNow(): string {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', weekday: 'short', hour: 'numeric', hour12: false }).formatToParts(now);
+  const wd = parts.find((p) => p.type === 'weekday')?.value || 'Mon';
+  const h = Number(parts.find((p) => p.type === 'hour')?.value || 18);
+  const d = wd === 'Sat' ? 'saturday' : wd === 'Sun' ? 'sunday' : 'weekday';
+  const tm = h < 11 ? 'morning' : h < 14 ? 'midday' : h < 17 ? 'afternoon' : h < 20 ? 'evening' : 'night';
+  const id = `${d}-${tm}`;
+  return S.net!.slots.some((s) => s.id === id) ? id : S.net!.slots[0].id;
+}
+
 function aboutHtml() {
   const T = t();
   const n = S.net!;
-  const slot = n.slots.map((s) => `${esc(s.label[S.lang])}: ${s.date.slice(6, 8)}.${s.date.slice(4, 6)}.${s.date.slice(0, 4)}`).join(' · ');
+  const seen = new Set<string>();
+  const slot = n.slots.filter((s) => !seen.has(s.day) && seen.add(s.day)).map((s) => `${T.days[s.day]}: ${s.date.slice(6, 8)}.${s.date.slice(4, 6)}.${s.date.slice(0, 4)}`).join(' · ');
   return `<form method="dialog">
     <h2>${T.aboutTitle}</h2><p>${T.aboutBody}</p>
     <h3>${T.privacyTitle}</h3><p>${T.privacyBody}</p>
@@ -495,7 +520,12 @@ panel.addEventListener('click', async (e) => {
       navigator.geolocation.getCurrentPosition((pos) => setPin(p, pos.coords.latitude, pos.coords.longitude), () => toast(t().geoError), { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
       return;
     case 'tap': startPicking(id); return;
-    case 'slot': S.slot = v; await loadSlot(v); update(false); return;
+    case 'day': case 'time': {
+      const { d, tm } = slotParts();
+      let id = act === 'day' ? `${v}-${tm}` : `${d}-${v}`;
+      if (!S.net!.slots.some((x) => x.id === id)) id = S.net!.slots.find((x) => x.id.startsWith(act === 'day' ? v : d))?.id || S.slot;
+      S.slot = id; await loadSlot(id); update(false); return;
+    }
     case 'cap': S.cap = +v; update(false); return;
     case 'sel': S.selected = +v; render(); drawMap(true); if (isMobile()) panel.querySelector('.places-h')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return;
     case 'vtype': S.vtype = v as VType; render(); drawMap(false); return;
@@ -543,6 +573,7 @@ render();
     const res = await fetch(`${BASE}data/network.json`);
     if (!res.ok) throw new Error('net');
     S.net = await res.json();
+    S.slot = slotForNow();
     await loadSlot(S.slot);
     if (!readHash()) { addPerson(); addPerson(); }
     else await loadSlot(S.slot);

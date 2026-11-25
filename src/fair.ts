@@ -3,7 +3,7 @@
 export interface Station { name: string; lat: number; lon: number; modes: string }
 export interface Network {
   generated: string; source: string; feedVersion: string; retrieved: string;
-  slots: { id: string; label: { en: string; de: string }; date: string }[];
+  slots: { id: string; day: string; time: string; date: string }[];
   walk: { mPerMin: number; detour: number };
   stations: Station[];
 }

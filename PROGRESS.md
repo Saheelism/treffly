@@ -2,6 +2,11 @@
 
 Newest first. Each nightly run adds one entry: date, what changed, what to do next, anything blocked.
 
+## 2026-11-26 (more meeting times, Saheel's request)
+
+- 15 time slots instead of 2: Mon–Fri / Saturday / Sunday × morning 8–9, midday 12–13, afternoon 15–16, evening 18–19, night 21–22. The app preselects the slot matching the current time in Munich. Old share links (`weekend-day`) map to Saturday afternoon.
+- Cost and politeness: MVV timetable and OpenStreetMap places are now downloaded at most once per week and kept in the free GitHub Actions cache, so nightly code pushes don't hit MVV or Overpass. Build ~15 min on free public-repo runners; site stays a few MB (Pages limit is 1 GB).
+
 ## 2026-11-26 (real routes on the map, Saheel's request)
 
 - Saheel did not want straight lines from people to the meeting point; he wants routes like the MVG app.

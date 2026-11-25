@@ -8,7 +8,7 @@ Live site: https://saheelism.github.io/treffly/
 Treffly finds the fairest place for a group (2 to 6 people) to meet in Munich by public transport.
 
 - People are added by station search, "use my location" or a tap on the map.
-- Time slots: weekday evening and weekend afternoon.
+- Time slots: Mon–Fri / Saturday / Sunday × morning, midday, afternoon, evening, night (15 slots); default follows the current time in Munich.
 - Fairness rule (decided by Saheel, do not change without asking):
   1. Nobody travels longer than the chosen limit (30 / 45 / 60 min, default 45).
   2. Among those, prefer the shortest longest trip and the most equal trips:
@@ -23,6 +23,7 @@ Treffly finds the fairest place for a group (2 to 6 people) to meet in Munich by
 
 ## Hard rules for every run
 
+- **Be gentle with data sources:** MVV GTFS and Overpass are fetched at most once a week (Actions cache). Never add per-visitor calls to them.
 - **Zero cost:** no paid services, no service that needs a credit card, no API keys. Static hosting on GitHub Pages and GitHub Actions on this public repo only.
 - **No legal risk:** keep all attributions (MVV CC BY 4.0 with retrieval date, OpenStreetMap ODbL, OpenFreeMap/OpenMapTiles). Respect every data source's usage policy and rate limits. No MVV, DB or Google branding. No scraping of sites that forbid it.
 - **Privacy:** no cookies, no trackers, no analytics, no accounts, no data leaving the browser.
@@ -47,6 +48,5 @@ Treffly finds the fairest place for a group (2 to 6 people) to meet in Munich by
 6. "Why this spot" line on each card and a light heat layer on the map showing where trips stay under the limit.
 7. Accessibility: keyboard navigation for suggestions, focus states, ARIA labels, contrast check.
 8. Performance: lazy-load MapLibre, keep first load under 400 kB gzip where possible.
-9. More time slots: weekday morning and late evening (check the data size stays small).
 10. Show the main line for each person's trip (needs storing the first boarded route in the pipeline).
 11. Small landing and SEO text, and a "How it works" section.

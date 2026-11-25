@@ -18,10 +18,10 @@ const WALK_DETOUR = 1.25; // street network vs straight line
 const MAX_FOOTPATH_M = 600; // walking links between nearby stations
 const TRANSFER_MIN = 2; // minimum time to change vehicles
 const MAX_TRIP_MIN = 120;
-const SLOTS = [
-  { id: 'weekday-evening', label: { en: 'Weekday evening', de: 'Werktag abends' }, dow: 3, start: 18 * 60, window: 60, step: 10 },
-  { id: 'weekend-day', label: { en: 'Weekend afternoon', de: 'Wochenende nachmittags' }, dow: 6, start: 14 * 60, window: 60, step: 10 },
-];
+// Time slots: 3 kinds of day x 5 times. Each slot averages departures over one hour.
+const DAYS = [{ id: 'weekday', dow: 3 }, { id: 'saturday', dow: 6 }, { id: 'sunday', dow: 0 }];
+const TIMES = [{ id: 'morning', start: 8 * 60 }, { id: 'midday', start: 12 * 60 }, { id: 'afternoon', start: 15 * 60 }, { id: 'evening', start: 18 * 60 }, { id: 'night', start: 21 * 60 }];
+const SLOTS = DAYS.flatMap((d) => TIMES.map((t) => ({ id: `${d.id}-${t.id}`, day: d.id, time: t.id, dow: d.dow, start: t.start, window: 60, step: 10 })));
 
 // ---------- helpers ----------
 async function readCsv(file, onRow) {
@@ -180,7 +180,9 @@ const trips = new Map();
 await readCsv('trips.txt', (r) => trips.set(r.trip_id, { route: r.route_id, service: r.service_id }));
 
 // choose the date per slot with the most active trips among candidates (avoids holidays)
+const dateForDow = new Map();
 const slotDates = SLOTS.map((s) => {
+  if (dateForDow.has(s.dow)) { const d = dateForDow.get(s.dow); return { ...s, date: d.date, services: d.services }; }
   const cands = pickDate(s.dow);
   let best = null, bestN = -1;
   for (const d of cands) {
@@ -189,7 +191,9 @@ const slotDates = SLOTS.map((s) => {
     for (const t of trips.values()) if (act.has(t.service)) n++;
     if (n > bestN) { bestN = n; best = d; }
   }
-  return { ...s, date: best, services: activeServices(best) };
+  const services = activeServices(best);
+  dateForDow.set(s.dow, { date: best, services });
+  return { ...s, date: best, services };
 });
 for (const s of slotDates) console.log(`Slot ${s.id}: ${s.date}`);
 
@@ -262,7 +266,15 @@ stList.forEach((s, i) => {
 // ---------- 5. connection scan ----------
 fs.mkdirSync(OUT_DIR, { recursive: true });
 const H = hubIdx.length;
-const allPaths = SLOTS.map(() => []); // [slot][source hub][target hub] -> legs
+// Route geometry: only stations that appear in some path are exported, numbered compactly (hubs first).
+const nodeMap = new Map();
+const nodes = [];
+const nodeOf = (i) => {
+  let n = nodeMap.get(i);
+  if (n === undefined) { n = nodes.length; nodeMap.set(i, n); const s = stList[i]; nodes.push([+s.lat.toFixed(5), +s.lon.toFixed(5), s.name]); }
+  return n;
+};
+hubIdx.forEach((i) => nodeOf(i));
 slotDates.forEach((slot, si) => {
   const raw = conns[si];
   const M = raw.length / 5;
@@ -343,30 +355,15 @@ slotDates.forEach((slot, si) => {
       out[hi * H + hj] = hi === hj ? 0 : Number.isFinite(v) ? Math.min(254, Math.round(v)) : 255;
       srcPaths.push(pathsBySample[hj][si2]);
     }
-    allPaths[si].push(srcPaths);
+    const dir = path.join(OUT_DIR, 'paths', slot.id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${hi}.json`), JSON.stringify(srcPaths.map((legs) => legs.map(([r, ...st]) => [r, ...st.map(nodeOf)]))));
     if (hi % 50 === 0) console.log(`  ${hi}/${H}`);
   }
   fs.writeFileSync(path.join(OUT_DIR, `tt-${slot.id}.bin`), out);
 });
 
 // ---------- 6. route geometry for the map ----------
-// Only network stations that appear in some path are exported, renumbered compactly.
-const nodeMap = new Map();
-const nodes = [];
-const nodeOf = (i) => {
-  let n = nodeMap.get(i);
-  if (n === undefined) { n = nodes.length; nodeMap.set(i, n); const s = stList[i]; nodes.push([+s.lat.toFixed(5), +s.lon.toFixed(5), s.name]); }
-  return n;
-};
-hubIdx.forEach((i) => nodeOf(i)); // hubs first, so node index = hub index for hubs
-slotDates.forEach((slot, si) => {
-  const dir = path.join(OUT_DIR, 'paths', slot.id);
-  fs.mkdirSync(dir, { recursive: true });
-  allPaths[si].forEach((srcPaths, hi) => {
-    const enc = srcPaths.map((legs) => legs.map(([r, ...st]) => [r, ...st.map(nodeOf)]));
-    fs.writeFileSync(path.join(dir, `${hi}.json`), JSON.stringify(enc));
-  });
-});
 fs.writeFileSync(path.join(OUT_DIR, 'geo.json'), JSON.stringify({ nodes, routes: routeList }));
 console.log(`Paths written: ${nodes.length} nodes, ${routeList.length} routes`);
 
@@ -382,7 +379,7 @@ fs.writeFileSync(path.join(OUT_DIR, 'network.json'), JSON.stringify({
   source: 'Münchner Verkehrs- und Tarifverbund GmbH (MVV), GTFS-MVV-Gesamt',
   feedVersion,
   retrieved: new Date().toISOString().slice(0, 10),
-  slots: slotDates.map((s) => ({ id: s.id, label: s.label, date: s.date })),
+  slots: slotDates.map((s) => ({ id: s.id, day: s.day, time: s.time, date: s.date })),
   walk: { mPerMin: WALK_M_PER_MIN, detour: WALK_DETOUR },
   stations,
 }));
