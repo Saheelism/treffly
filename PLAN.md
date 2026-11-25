@@ -19,6 +19,7 @@ Treffly finds the fairest place for a group (2 to 6 people) to meet in Munich by
 - Share links hold only the nearest station of each person, never exact coordinates.
 - Mobile-first (bottom sheet), English and German.
 - UI must stay comfortable, calm and polished. Look at screenshots after every UI change.
+- Phone first: test every UI change with Playwright's iPhone 13 profile by tapping through the real flow (add person, type a station, tap the map, scroll to Share). The phone layout is map on top, scrollable panel below; do not go back to a floating bottom sheet.
 
 ## Hard rules for every run
 
