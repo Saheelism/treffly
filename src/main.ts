@@ -73,12 +73,17 @@ let meetMarker: maplibregl.Marker | null = null;
 map.on('load', () => {
   mapReady = true;
   map.addSource('links', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({ id: 'links', type: 'line', source: 'links', paint: { 'line-color': ['get', 'c'], 'line-width': 3, 'line-opacity': 0.75, 'line-dasharray': [1.5, 1.5] }, layout: { 'line-cap': 'round' } });
+  // walking: dotted line in the person's colour
+  map.addLayer({ id: 'walk', type: 'line', source: 'links', filter: ['==', ['get', 'k'], 'walk'], paint: { 'line-color': ['get', 'c'], 'line-width': 4, 'line-dasharray': [0.1, 1.8] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  // rides: line colour with a white casing, like a transit map
+  map.addLayer({ id: 'ride-casing', type: 'line', source: 'links', filter: ['==', ['get', 'k'], 'ride'], paint: { 'line-color': '#ffffff', 'line-width': 9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  map.addLayer({ id: 'links', type: 'line', source: 'links', filter: ['==', ['get', 'k'], 'ride'], paint: { 'line-color': ['get', 'c'], 'line-width': 5.5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  map.addLayer({ id: 'stops', type: 'circle', source: 'links', filter: ['==', ['get', 'k'], 'stop'], paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-color': ['get', 'c'], 'circle-stroke-width': 3 } });
   map.addSource('venues', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({ id: 'venues', type: 'circle', source: 'venues', paint: { 'circle-radius': 6, 'circle-color': '#1f2a44', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
   map.addLayer({ id: 'venue-labels', type: 'symbol', source: 'venues', minzoom: 14.5, layout: { 'text-field': ['get', 'n'], 'text-size': 12, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-font': ['Noto Sans Regular'] }, paint: { 'text-color': '#1f2a44', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
   map.addSource('stations', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({ id: 'stations', type: 'circle', source: 'stations', minzoom: 12, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 2, 15, 4], 'circle-color': '#9aa4b8' } }, 'links');
+  map.addLayer({ id: 'stations', type: 'circle', source: 'stations', minzoom: 12, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 2, 15, 4], 'circle-color': '#9aa4b8' } }, 'walk');
   drawStations();
   drawMap(true);
 });
@@ -166,12 +171,9 @@ function drawMap(fit = false) {
       meetMarker = new maplibregl.Marker({ element: el }).setLngLat([s.lon, s.lat]).addTo(map);
     }
     meetMarker.setLngLat([s.lon, s.lat]);
-    for (const p of S.people) {
-      if (!p.place) continue;
-      const { lat, lon } = placeLatLon(p.place);
-      feats.push({ type: 'Feature', properties: { c: color(p) }, geometry: { type: 'LineString', coordinates: [[lon, lat], [s.lon, s.lat]] } });
-    }
+    drawRoutes(r.idx, feats);
   } else if (meetMarker) { meetMarker.remove(); meetMarker = null; }
+  if (!r) clearLineBadges();
   (map.getSource('links') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: feats });
   // venues
   const vs = r ? currentVenues(r.idx) : [];
@@ -179,11 +181,107 @@ function drawMap(fit = false) {
   if (fit) fitView();
 }
 
+// ---------- routes (lines each person takes) ----------
+type Leg = number[]; // [route, node, node, ...]; route -1 = walk
+interface Geo { nodes: [number, number, string][]; routes: [string, string, string][] }
+let geo: Geo | null = null;
+let geoLoading = false;
+const pathCache = new Map<string, Leg[][] | 'loading'>();
+let lineBadges: maplibregl.Marker[] = [];
+
+function clearLineBadges() { lineBadges.forEach((m) => m.remove()); lineBadges = []; }
+
+/** Which station a person walks to first for a given meeting station, and the walk minutes. */
+function bestAccess(p: Place, m: number) {
+  const H = S.planner!.H;
+  let best: { idx: number; walk: number; total: number } | null = null;
+  for (const a of S.planner!.access(p)) {
+    const v = a.idx === m ? 0 : S.planner!.tt[a.idx * H + m];
+    if (v === 255) continue;
+    const total = a.walk + v;
+    if (!best || total < best.total) best = { idx: a.idx, walk: a.walk, total };
+  }
+  return best;
+}
+
+/** Legs from a person's start to station m, or null while the data loads. */
+function routeFor(p: Person, m: number): { access: number; legs: Leg[] } | null {
+  if (!p.place || !S.planner) return null;
+  const acc = bestAccess(p.place, m);
+  if (!acc) return null;
+  if (acc.idx === m) return { access: acc.idx, legs: [] };
+  const key = `${S.slot}/${acc.idx}`;
+  const c = pathCache.get(key);
+  if (!geo && !geoLoading) {
+    geoLoading = true;
+    fetch(`${BASE}data/geo.json`).then((r) => (r.ok ? r.json() : null)).then((g) => { geo = g; render(); drawMap(false); }).catch(() => {});
+  }
+  if (c === undefined) {
+    pathCache.set(key, 'loading');
+    fetch(`${BASE}data/paths/${key}.json`).then((r) => (r.ok ? r.json() : [])).then((d) => { pathCache.set(key, d); render(); drawMap(false); }).catch(() => pathCache.delete(key));
+    return null;
+  }
+  if (c === 'loading' || !geo) return null;
+  return { access: acc.idx, legs: c[m] || [] };
+}
+
+function drawRoutes(m: number, feats: any[]) {
+  clearLineBadges();
+  for (const p of S.people) {
+    if (!p.place) continue;
+    const rt = routeFor(p, m);
+    const start = placeLatLon(p.place);
+    const pc = color(p);
+    if (!rt || !geo) continue;
+    const ll = (n: number): [number, number] => [geo!.nodes[n][1], geo!.nodes[n][0]];
+    // walk from the starting point to the first station
+    const first = rt.legs.length ? rt.legs[0][1] : m;
+    const firstLL = ll(first);
+    if (Math.abs(firstLL[0] - start.lon) + Math.abs(firstLL[1] - start.lat) > 0.0004) feats.push({ type: 'Feature', properties: { k: 'walk', c: pc }, geometry: { type: 'LineString', coordinates: [[start.lon, start.lat], firstLL] } });
+    for (const leg of rt.legs) {
+      const [r, ...nodes] = leg;
+      const coords = nodes.map(ll);
+      if (r < 0) { feats.push({ type: 'Feature', properties: { k: 'walk', c: pc }, geometry: { type: 'LineString', coordinates: coords } }); continue; }
+      const [name, , lc] = geo.routes[r] || ['', 'B', '#56607a'];
+      feats.push({ type: 'Feature', properties: { k: 'ride', c: lc }, geometry: { type: 'LineString', coordinates: coords } });
+      feats.push({ type: 'Feature', properties: { k: 'stop', c: lc }, geometry: { type: 'Point', coordinates: coords[0] } });
+      feats.push({ type: 'Feature', properties: { k: 'stop', c: lc }, geometry: { type: 'Point', coordinates: coords[coords.length - 1] } });
+      // line name badge in the middle of the ride
+      const mid = coords[Math.floor(coords.length / 2)];
+      const el = document.createElement('div');
+      el.className = 'linebadge';
+      el.style.background = lc;
+      el.textContent = name;
+      lineBadges.push(new maplibregl.Marker({ element: el }).setLngLat(mid).addTo(map));
+    }
+  }
+}
+
+/** Short summary of a person's trip for the result card. */
+function legChips(p: Person, m: number) {
+  const rt = routeFor(p, m);
+  if (!rt || !geo) return `<span class="muted small">…</span>`;
+  const parts: string[] = [];
+  const acc = bestAccess(p.place!, m)!;
+  if (acc.walk >= 1) parts.push(`<span class="walkchip" title="${S.lang === 'de' ? 'Fußweg' : 'Walk'}">🚶 ${Math.round(acc.walk)}′</span>`);
+  for (const leg of rt.legs) {
+    if (leg[0] < 0) { parts.push(`<span class="walkchip">🚶</span>`); continue; }
+    const [name, mode, lc] = geo.routes[leg[0]] || ['?', 'B', '#56607a'];
+    const label = name || mode;
+    parts.push(`<span class="linechip" style="background:${lc}" title="${esc(geo.nodes[leg[1]][2])} → ${esc(geo.nodes[leg[leg.length - 1]][2])}">${esc(label)}</span>`);
+  }
+  if (!rt.legs.length && acc.walk < 1) return `<span class="muted small">${S.lang === 'de' ? 'schon da' : 'already there'}</span>`;
+  return parts.join('<span class="arrow">›</span>');
+}
+
 function fitView() {
   const pts: [number, number][] = [];
   for (const p of S.people) if (p.place) { const { lat, lon } = placeLatLon(p.place); pts.push([lon, lat]); }
   const r = S.results[S.selected];
-  if (r) { const s = S.net!.stations[r.idx]; pts.push([s.lon, s.lat]); }
+  if (r) {
+    const s = S.net!.stations[r.idx]; pts.push([s.lon, s.lat]);
+    if (geo) for (const p of S.people) { const rt = p.place ? routeFor(p, r.idx) : null; rt?.legs.forEach((l) => l.slice(1).forEach((n) => pts.push([geo!.nodes[n][1], geo!.nodes[n][0]]))); }
+  }
   if (!pts.length) return;
   const b = new maplibregl.LngLatBounds(pts[0], pts[0]);
   pts.forEach((p) => b.extend(p));
@@ -341,6 +439,7 @@ function resultsHtml() {
       ${r.map((x, i) => `<button class="card ${i === S.selected ? 'on' : ''}" data-act="sel" data-v="${i}">
         <div class="ctop"><span class="rank">${i + 1}</span><span class="cname">${esc(st[x.idx].name)}</span><span class="modes">${modeBadges(st[x.idx].modes)}</span></div>
         <div class="bars">${ready.map((p, k) => `<div class="bar"><span class="who" style="background:${color(p)}">${esc((p.name.trim()[0] || '?').toUpperCase())}</span><span class="track"><span style="width:${Math.max(6, (x.times[k] / maxBar) * 100)}%;background:${color(p)}"></span></span><span class="mins">${T.minutes(x.times[k])}</span></div>`).join('')}</div>
+        ${i === S.selected ? `<div class="legs">${ready.map((p) => `<div class="legrow"><span class="who" style="background:${color(p)}">${esc((p.name.trim()[0] || '?').toUpperCase())}</span><span class="chips2">${legChips(p, x.idx)}</span></div>`).join('')}</div>` : ''}
         <div class="csum">${x.withinCap ? `<b>${T.everyone(x.max)}</b>` : `${T.longest} <b>${T.minutes(x.max)}</b>`} · ${T.gap} ${T.minutes(x.spread)}</div>
       </button>`).join('')}
     </div>

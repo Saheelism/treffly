@@ -180,3 +180,14 @@ dialog a { color: var(--ink); }
 .pickbar button { background: rgba(255,255,255,.16); color: #fff; padding: 6px 10px; border-radius: 9px; font-weight: 700; }
 body.picking .pickbar { display: flex; }
 body.picking .maplibregl-ctrl-top-right { display: none; }
+
+/* route chips and map badges */
+.legs { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.legrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chips2 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+.linechip { color: #fff; font-weight: 800; font-size: 12px; padding: 2px 7px; border-radius: 6px; line-height: 1.35; }
+.walkchip { font-size: 12px; color: var(--ink2); background: var(--soft); border-radius: 6px; padding: 2px 6px; line-height: 1.35; }
+.card.on .walkchip { background: #eef0f5; }
+.arrow { color: var(--muted); font-size: 13px; }
+.small { font-size: 12px; }
+.linebadge { color: #fff; font: 800 11.5px/1 Inter, system-ui, sans-serif; padding: 4px 7px; border-radius: 7px; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.25); pointer-events: none; }

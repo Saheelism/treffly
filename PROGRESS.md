@@ -2,6 +2,13 @@
 
 Newest first. Each nightly run adds one entry: date, what changed, what to do next, anything blocked.
 
+## 2026-11-26 (real routes on the map, Saheel's request)
+
+- Saheel did not want straight lines from people to the meeting point; he wants routes like the MVG app.
+- Pipeline now keeps, for every station pair, the journey of the median departure: walks and rides with every intermediate stop (MVV has no shapes.txt, so rides follow the stop sequence). Output: `geo.json` (nodes, line names and colours) and `paths/<slot>/<hub>.json`, loaded on demand.
+- Map: rides in line colour with white casing, walking as dotted lines in the person's colour, white stop dots where people board and leave, line badges (U6, S8, 19...). Selected card lists each person's lines.
+- Idea for later (ask Saheel first, it adds a data source): follow real track geometry from OpenStreetMap railway lines instead of stop-to-stop lines.
+
 ## 2026-11-25 (mobile fix, after Saheel's feedback)
 
 - Saheel reported the phone site was hard to use: options off-screen, sections frozen.
