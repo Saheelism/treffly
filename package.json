@@ -1,0 +1,19 @@
+{
+  "name": "treffly",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^6.4.6"
+  },
+  "dependencies": {
+    "maplibre-gl": "^6.19.0"
+  }
+}
