@@ -24,7 +24,6 @@ const S = {
   editing: null as number | null, // person whose start point is being chosen
   picking: null as number | null, // person waiting for a map tap
   query: '',
-  collapsed: false,
   planner: null as Planner | null,
   net: null as Network | null,
   tts: new Map<string, Uint8Array>(),
@@ -86,8 +85,7 @@ map.on('load', () => {
 map.on('click', (e) => {
   if (S.picking == null || !S.planner) return;
   const p = S.people.find((x) => x.id === S.picking);
-  S.picking = null;
-  document.body.classList.remove('picking');
+  stopPicking();
   if (!p) return;
   setPin(p, e.lngLat.lat, e.lngLat.lng);
 });
@@ -98,6 +96,27 @@ map.on('click', 'venues', (e) => {
 map.on('mouseenter', 'venues', () => (map.getCanvas().style.cursor = 'pointer'));
 map.on('mouseleave', 'venues', () => (map.getCanvas().style.cursor = ''));
 
+function startPicking(id: number) {
+  S.picking = id;
+  document.body.classList.add('picking');
+  document.getElementById('pickmsg')!.textContent = t().tapHint;
+  document.getElementById('pickcancel')!.textContent = t().cancel;
+  setTimeout(() => map.resize(), 280);
+}
+function stopPicking() {
+  if (S.picking == null && !document.body.classList.contains('picking')) return;
+  S.picking = null;
+  document.body.classList.remove('picking');
+  setTimeout(() => { map.resize(); fitView(); }, 280);
+}
+function afterPlaceSet() {
+  if (!isMobile()) return;
+  requestAnimationFrame(() => {
+    const target = S.results.length ? panel.querySelector('.results') : panel.querySelector('.people .ploc.empty');
+    target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
+}
+
 function setPin(p: Person, lat: number, lon: number) {
   const ns = S.planner!.nearestStation(lat, lon);
   p.place = { kind: 'pin', lat, lon };
@@ -105,6 +124,7 @@ function setPin(p: Person, lat: number, lon: number) {
   if (ns.dist > 1500) toast(t().outside);
   S.editing = null;
   update();
+  afterPlaceSet();
 }
 
 function drawStations() {
@@ -167,8 +187,7 @@ function fitView() {
   if (!pts.length) return;
   const b = new maplibregl.LngLatBounds(pts[0], pts[0]);
   pts.forEach((p) => b.extend(p));
-  const mobile = window.innerWidth < 760;
-  map.fitBounds(b, { padding: mobile ? { top: 60, bottom: Math.round(window.innerHeight * 0.55), left: 40, right: 40 } : { top: 80, bottom: 80, left: 460, right: 80 }, maxZoom: 14.5, duration: 700 });
+  map.fitBounds(b, { padding: isMobile() ? { top: 40, bottom: 40, left: 36, right: 36 } : { top: 80, bottom: 80, left: 460, right: 80 }, maxZoom: 14.5, duration: 700 });
 }
 
 function currentVenues(idx: number): Venue[] {
@@ -221,6 +240,8 @@ function readHash() {
 
 // ---------- render ----------
 const panel = document.getElementById('panel')!;
+let focusPicker = false;
+const isMobile = () => window.innerWidth < 760;
 
 function render() {
   const T = t();
@@ -231,9 +252,7 @@ function render() {
   }
   const allSet = S.people.length >= 2 && S.people.every((p) => p.place);
   const r = S.results;
-  panel.classList.toggle('collapsed', S.collapsed);
   panel.innerHTML = `
-    <button class="handle" data-act="toggle" aria-label="Expand or collapse"><span></span></button>
     <header class="brand">
       <div class="logo" aria-hidden="true"><i></i><i></i><i></i></div>
       <div><h1>Treffly</h1><p class="tag">${T.tagline}</p></div>
@@ -259,7 +278,7 @@ function render() {
       <footer><button class="link" data-act="about">${T.about}</button><span>·</span><span>Timetable © MVV · Map © OpenStreetMap</span></footer>
     </div>`;
   const inp = panel.querySelector<HTMLInputElement>('.picker input');
-  if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+  if (inp && focusPicker) { focusPicker = false; inp.focus({ preventScroll: true }); inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
 }
 
 function personRow(p: Person) {
@@ -278,22 +297,25 @@ function personRow(p: Person) {
   </li>`;
 }
 
+function suggestions(pid: number) {
+  const q = fold(S.query);
+  if (q.length < 2) return '';
+  let sug: { i: number; s: number }[] = [];
+  S.net!.stations.forEach((st, i) => {
+    const f = fold(st.name);
+    const pos = f.indexOf(q);
+    if (pos >= 0) sug.push({ i, s: pos === 0 ? 0 : f.includes(' ' + q) ? 1 : 2 + pos / 100 });
+  });
+  sug.sort((a, b) => a.s - b.s || S.net!.stations[a.i].name.length - S.net!.stations[b.i].name.length);
+  sug = sug.slice(0, 6);
+  return sug.map((x) => `<li><button data-act="choose" data-id="${pid}" data-v="${x.i}"><span>${esc(S.net!.stations[x.i].name)}</span><span class="modes">${modeBadges(S.net!.stations[x.i].modes)}</span></button></li>`).join('');
+}
+
 function pickerHtml(p: Person) {
   const T = t();
-  const q = fold(S.query);
-  let sug: { i: number; s: number }[] = [];
-  if (q.length >= 2) {
-    S.net!.stations.forEach((st, i) => {
-      const f = fold(st.name);
-      const pos = f.indexOf(q);
-      if (pos >= 0) sug.push({ i, s: pos === 0 ? 0 : f.includes(' ' + q) ? 1 : 2 + pos / 100 });
-    });
-    sug.sort((a, b) => a.s - b.s || S.net!.stations[a.i].name.length - S.net!.stations[b.i].name.length);
-    sug = sug.slice(0, 6);
-  }
   return `<div class="picker">
-    <input type="search" placeholder="${T.searchPh}" value="${esc(S.query)}" data-id="${p.id}" autocomplete="off" />
-    ${sug.length ? `<ul class="sug">${sug.map((x) => `<li><button data-act="choose" data-id="${p.id}" data-v="${x.i}"><span>${esc(S.net!.stations[x.i].name)}</span><span class="modes">${modeBadges(S.net!.stations[x.i].modes)}</span></button></li>`).join('')}</ul>` : ''}
+    <input type="search" placeholder="${T.searchPh}" value="${esc(S.query)}" data-id="${p.id}" autocomplete="off" enterkeyhint="search" />
+    <ul class="sug">${suggestions(p.id)}</ul>
     <div class="pick-actions">
       <button data-act="geo" data-id="${p.id}">◎ ${T.myLocation}</button>
       <button data-act="tap" data-id="${p.id}">⌖ ${T.pickMap}</button>
@@ -324,7 +346,7 @@ function resultsHtml() {
     </div>
     <h2 class="places-h">${T.places} <span class="muted">· ${esc(st[sel.idx].name)}</span></h2>
     <div class="chips">${(['cafe', 'bar', 'food'] as VType[]).map((v) => `<button data-act="vtype" data-v="${v}" class="${S.vtype === v ? 'on' : ''}">${T[v]}</button>`).join('')}</div>
-    ${vs.length ? `<ul class="venues">${vs.map((v) => `<li><button data-act="venue" data-lat="${v[2]}" data-lon="${v[3]}"><span class="vn">${esc(v[0])}</span><span class="vd">${v[5] ? esc(v[5].split(';')[0].replace(/_/g, ' ')) + ' · ' : ''}${v[4]} m</span></button><a href="https://www.openstreetmap.org/?mlat=${v[2]}&mlon=${v[3]}#map=19/${v[2]}/${v[3]}" target="_blank" rel="noopener" aria-label="${T.openMap}">↗</a></li>`).join('')}</ul>` : `<p class="muted">${S.venues ? T.noPlaces : '…'}</p>`}
+    ${vs.length ? `<ul class="venues">${vs.map((v) => `<li><button data-act="venue" data-lat="${v[2]}" data-lon="${v[3]}"><span class="vn">${esc(v[0])}</span><span class="vd">${v[5] ? `<i>${esc(v[5].split(';')[0].replace(/_/g, ' '))}</i> · ` : ''}${v[4]} m</span></button><a href="https://www.openstreetmap.org/?mlat=${v[2]}&mlon=${v[3]}#map=19/${v[2]}/${v[3]}" target="_blank" rel="noopener" aria-label="${T.openMap}">↗</a></li>`).join('')}</ul>` : `<p class="muted">${S.venues ? T.noPlaces : '…'}</p>`}
     <button class="share" data-act="share">${T.share}</button>`;
 }
 
@@ -361,25 +383,24 @@ panel.addEventListener('click', async (e) => {
   const act = b.dataset.act!, id = Number(b.dataset.id), v = b.dataset.v!;
   const p = S.people.find((x) => x.id === id);
   switch (act) {
-    case 'toggle': S.collapsed = !S.collapsed; render(); return;
     case 'lang': S.lang = v as Lang; try { localStorage.setItem('treffly-lang', S.lang); } catch {} S.people.forEach((x) => { if (x.place?.kind === 'pin') { const ns = S.planner!.nearestStation(x.place.lat, x.place.lon); x.label = `${t().near} ${S.net!.stations[ns.idx].name}`; } }); render(); return;
-    case 'add': { const np = addPerson(); if (np) { S.editing = np.id; S.query = ''; } render(); return; }
+    case 'add': { const np = addPerson(); if (np) { S.editing = np.id; S.query = ''; focusPicker = true; } render(); return; }
     case 'remove': S.people = S.people.filter((x) => x.id !== id); if (S.editing === id) S.editing = null; update(); return;
-    case 'edit': S.editing = S.editing === id ? null : id; S.query = ''; render(); return;
-    case 'cancel': S.editing = null; S.picking = null; document.body.classList.remove('picking'); render(); return;
-    case 'choose': if (p) { const i = +v; p.place = { kind: 'station', idx: i }; p.label = S.net!.stations[i].name; S.editing = null; update(); } return;
+    case 'edit': S.editing = S.editing === id ? null : id; S.query = ''; focusPicker = S.editing != null; render(); return;
+    case 'cancel': S.editing = null; stopPicking(); render(); return;
+    case 'choose': if (p) { const i = +v; p.place = { kind: 'station', idx: i }; p.label = S.net!.stations[i].name; S.editing = null; S.query = ''; update(); afterPlaceSet(); } return;
     case 'geo':
       if (!p) return;
       if (!navigator.geolocation) { toast(t().geoError); return; }
       toast(t().locating);
       navigator.geolocation.getCurrentPosition((pos) => setPin(p, pos.coords.latitude, pos.coords.longitude), () => toast(t().geoError), { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
       return;
-    case 'tap': S.picking = id; document.body.classList.add('picking'); S.collapsed = window.innerWidth < 760; render(); toast(t().tapHint); return;
+    case 'tap': startPicking(id); return;
     case 'slot': S.slot = v; await loadSlot(v); update(false); return;
     case 'cap': S.cap = +v; update(false); return;
-    case 'sel': S.selected = +v; render(); drawMap(true); return;
+    case 'sel': S.selected = +v; render(); drawMap(true); if (isMobile()) panel.querySelector('.places-h')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return;
     case 'vtype': S.vtype = v as VType; render(); drawMap(false); return;
-    case 'venue': map.flyTo({ center: [+b.dataset.lon!, +b.dataset.lat!], zoom: 16.5, duration: 800 }); if (window.innerWidth < 760) { S.collapsed = true; render(); } return;
+    case 'venue': map.flyTo({ center: [+b.dataset.lon!, +b.dataset.lat!], zoom: 16.5, duration: 800 }); return;
     case 'share': await share(); return;
     case 'about': { const d = document.getElementById('about') as HTMLDialogElement; d.innerHTML = aboutHtml(); d.showModal(); return; }
   }
@@ -391,7 +412,8 @@ panel.addEventListener('input', (e) => {
     if (p) { p.name = el.value; const av = el.closest('.person')?.querySelector('.avatar'); if (av) av.textContent = (p.name.trim()[0] || '?').toUpperCase(); drawMap(false); writeHash(); }
   } else if (el.type === 'search') {
     S.query = el.value;
-    render();
+    const ul = el.parentElement!.querySelector('.sug')!;
+    ul.innerHTML = suggestions(Number(el.dataset.id));
   }
 });
 panel.addEventListener('change', (e) => { if ((e.target as HTMLElement).classList.contains('pname')) render(); });
@@ -412,6 +434,8 @@ async function share() {
   }
   try { await navigator.clipboard.writeText(`${text}\n${url}`); toast(t().copied); } catch { prompt('Copy this link', url); }
 }
+
+document.getElementById('pickcancel')!.addEventListener('click', () => { stopPicking(); render(); });
 
 // ---------- boot ----------
 render();

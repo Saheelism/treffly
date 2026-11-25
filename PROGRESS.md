@@ -2,6 +2,13 @@
 
 Newest first. Each nightly run adds one entry: date, what changed, what to do next, anything blocked.
 
+## 2026-11-25 (mobile fix, after Saheel's feedback)
+
+- Saheel reported the phone site was hard to use: options off-screen, sections frozen.
+- Causes: bottom sheet only gave ~380 px of scroll space and could hide behind the browser bar; station search re-rendered the panel on every key, which closes the phone keyboard; inputs under 16 px made iPhones zoom in.
+- New phone layout: map fixed on top (36% of screen), panel below fills the rest and scrolls normally (uses dvh). "Tap the map" enlarges the map and shows a bar with Cancel. Search updates only the suggestion list. After choosing a start point the panel scrolls to the results. Bigger touch targets.
+- Rule for future runs: test every UI change with the Playwright iPhone 13 profile (tap, type, scroll to the Share button), not only screenshots.
+
 ## 2026-11-25 (version 1)
 
 - Built the data pipeline (`pipeline/build.mjs`): MVV GTFS → stations (rail, S-Bahn, U-Bahn, tram in Munich) → connection scan with transfers (2 min) and footpaths (≤600 m) → median door-to-door minutes over departures every 10 min, for weekday evening and weekend afternoon. Tested on a synthetic feed.
