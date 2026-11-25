@@ -132,6 +132,7 @@ footer { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding:
 .link { color: var(--ink2); text-decoration: underline; text-underline-offset: 2px; font-size: inherit; padding: 0; }
 
 /* ---------- map markers ---------- */
+.pwrap { width: 34px; height: 40px; display: grid; place-items: start center; }
 .pmark { width: 34px; height: 34px; border-radius: 50% 50% 50% 4px; transform: rotate(-45deg); display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 14px; border: 3px solid #fff; box-shadow: 0 4px 12px rgba(0,0,0,.25); }
 .meet { width: 26px; height: 26px; border-radius: 50%; background: var(--ink); border: 4px solid #fff; box-shadow: 0 4px 14px rgba(0,0,0,.3); position: relative; }
 .meet span { position: absolute; inset: -14px; border-radius: 50%; border: 3px solid var(--ink); opacity: 0; animation: pulse 2s ease-out infinite; }

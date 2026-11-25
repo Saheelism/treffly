@@ -81,7 +81,7 @@ map.on('load', () => {
   map.addSource('stations', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({ id: 'stations', type: 'circle', source: 'stations', minzoom: 12, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 2, 15, 4], 'circle-color': '#9aa4b8' } }, 'links');
   drawStations();
-  drawMap();
+  drawMap(true);
 });
 map.on('click', (e) => {
   if (S.picking == null || !S.planner) return;
@@ -123,13 +123,14 @@ function drawMap(fit = false) {
     let m = personMarkers.get(p.id);
     if (!m) {
       const el = document.createElement('div');
-      el.className = 'pmark';
-      m = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
+      el.className = 'pwrap';
+      el.innerHTML = '<div class="pmark"><b></b></div>';
+      m = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([lon, lat]).addTo(map);
       personMarkers.set(p.id, m);
     }
-    const el = m.getElement();
-    el.style.background = color(p);
-    el.innerHTML = `<b>${esc((p.name.trim()[0] || '?').toUpperCase())}</b>`;
+    const pin = m.getElement().querySelector<HTMLElement>('.pmark')!;
+    pin.style.background = color(p);
+    pin.querySelector('b')!.textContent = (p.name.trim()[0] || '?').toUpperCase();
     m.setLngLat([lon, lat]);
   }
   for (const [id, m] of personMarkers) if (!alive.has(id)) { m.remove(); personMarkers.delete(id); }
