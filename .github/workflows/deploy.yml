@@ -61,6 +61,10 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+      # Sanity check of the travel times. Runs last so its output sits at the end of the log;
+      # a failure here still stops the deploy job.
+      - name: Check travel times
+        run: node pipeline/check.mjs public/data
   deploy:
     needs: build
     runs-on: ubuntu-latest
