@@ -72,6 +72,14 @@ function distM(aLat, aLon, bLat, bLon) {
   const x = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * r) * Math.cos(bLat * r) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(x));
 }
+// Display names: drop the city prefix the feed uses ("München, X", "München-Pasing") and spell out the big stations.
+const RENAME = { hbf: 'Hauptbahnhof', ost: 'Ostbahnhof' };
+function cleanName(n) {
+  const s = n.trim().replace(/\s+/g, ' ');
+  const rest = s.replace(/^München(?:[,\s-]+|$)/, '');
+  if (!rest || rest === s) return s;
+  return RENAME[rest.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()] || rest;
+}
 const normName = (n) => n.toLowerCase().replace(/\s*\(.*?\)\s*/g, ' ').replace(/[^a-z0-9äöüß]+/g, ' ').trim();
 function modeOf(routeType) {
   const t = Number(routeType);
@@ -85,7 +93,7 @@ function modeOf(routeType) {
 console.log('Reading stops');
 const stops = new Map();
 await readCsv('stops.txt', (r) => {
-  stops.set(r.stop_id, { id: r.stop_id, name: r.stop_name, lat: +r.stop_lat, lon: +r.stop_lon, parent: r.parent_station || '', type: r.location_type || '0' });
+  stops.set(r.stop_id, { id: r.stop_id, name: cleanName(r.stop_name), lat: +r.stop_lat, lon: +r.stop_lon, parent: r.parent_station || '', type: r.location_type || '0' });
 });
 // group: parent station if present, else the stop itself
 const groupOf = new Map();

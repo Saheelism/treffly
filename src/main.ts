@@ -36,6 +36,15 @@ const BASE = import.meta.env.BASE_URL;
 // ---------- helpers ----------
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, ' ').trim();
+// Search spelling: "ue" = "ü", "Str." = "Straße", "Hbf" = "Hauptbahnhof", "Bf" = "Bahnhof".
+const canon = (f: string) => f.replace(/ae/g, 'a').replace(/oe/g, 'o').replace(/ue/g, 'u')
+  .replace(/strasse\b/g, 'str').replace(/hauptbahnhof\b/g, 'hbf').replace(/bahnhof\b/g, 'bf');
+const searchKeys = new Map<number, string[]>();
+function keysOf(i: number, name: string) {
+  let k = searchKeys.get(i);
+  if (!k) { const f = fold(name); const c = canon(f); k = [f, c, c.replace(/ /g, '')]; searchKeys.set(i, k); }
+  return k;
+}
 const modeBadges = (modes: string) => [...modes].map((m) => `<span class="mode mode-${m}">${m === 'T' ? 'Tram' : m}</span>`).join('');
 const color = (p: Person) => COLORS[(p.id - 1) % COLORS.length];
 function toast(msg: string) {
@@ -400,11 +409,15 @@ function personRow(p: Person) {
 function suggestions(pid: number) {
   const q = fold(S.query);
   if (q.length < 2) return '';
+  const qs = [q, canon(q), canon(q).replace(/ /g, '')];
   let sug: { i: number; s: number }[] = [];
   S.net!.stations.forEach((st, i) => {
-    const f = fold(st.name);
-    const pos = f.indexOf(q);
-    if (pos >= 0) sug.push({ i, s: pos === 0 ? 0 : f.includes(' ' + q) ? 1 : 2 + pos / 100 });
+    let best = Infinity;
+    for (const f of keysOf(i, st.name)) for (const v of qs) {
+      const pos = f.indexOf(v);
+      if (pos >= 0) best = Math.min(best, pos === 0 ? 0 : f.includes(' ' + v) ? 1 : 2 + pos / 100);
+    }
+    if (best < Infinity) sug.push({ i, s: best });
   });
   sug.sort((a, b) => a.s - b.s || S.net!.stations[a.i].name.length - S.net!.stations[b.i].name.length);
   sug = sug.slice(0, 6);
