@@ -40,8 +40,9 @@ Treffly finds the fairest place for a group (2 to 6 people) to meet in Munich by
 
 ## Backlog (top = next)
 
-1. Sanity-check real travel times: add `pipeline/check.mjs` that prints times for known pairs (Marienplatz ↔ Hauptbahnhof, Studentenstadt ↔ Marienplatz, Pasing ↔ Ostbahnhof, Garching ↔ Sendlinger Tor) and fails the build on clearly impossible values (0 between different stations, >120, or many unreachable pairs). Tune station grouping if names are duplicated or hubs are missing.
-2. Station names: strip the "München, " prefix if the feed uses it; merge duplicates; make search match "Hbf", "Str." and umlaut-free spellings.
+Done: travel-time check (`pipeline/check.mjs`, runs in every build), station names and forgiving search.
+
+
 3. Bus feeders: let people start from any MVV stop (walk to the nearest bus stop counts), not only rail and tram stations.
 4. PWA: web manifest, icons, installable, offline cache of app shell and data.
 5. Link previews: Open Graph image (static PNG made at build time) and good meta tags in EN and DE.

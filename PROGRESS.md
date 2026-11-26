@@ -2,6 +2,14 @@
 
 Newest first. Each nightly run adds one entry: date, what changed, what to do next, anything blocked.
 
+## 2026-11-26 (nightly: data check, station names)
+
+- New `pipeline/check.mjs`, run as the last step of every build (a failure blocks the deploy; results also go to the Actions run summary). It prints known pairs, per-slot unreachable share, zero-minute pairs and duplicate names, and fails on missing stations, impossible values or more than 10 % unreachable pairs.
+- First result on real data (315 stations, feed 20261102): Studentenstadt → Marienplatz 12 min, Pasing → Ostbahnhof 19, Garching → Sendlinger Tor 27, Marienplatz → Hauptbahnhof 4–5 (shorter than the ~8 reference, but plausible on the S-Bahn trunk with trains every few minutes). Unreachable pairs 0–0.7 %, no zero-minute pairs, no duplicate names. 1–127 pairs per slot exceed 120 min (edge stations at weekend nights); these are only warnings.
+- Station names: the "München" prefix is dropped ("München-Pasing" → "Pasing"), "München Hbf" → "Hauptbahnhof", "München Ost" → "Ostbahnhof"; Hbf stops merged into one station (316 → 315).
+- Search now accepts "Hbf", "Str.", "Bf", umlaut-free spellings (muenchner) and missing spaces (ostbf). Share links are unaffected (they hold coordinates).
+- Next: backlog item 3 (bus feeders).
+
 ## 2026-11-26 (more meeting times, Saheel's request)
 
 - 15 time slots instead of 2: Mon–Fri / Saturday / Sunday × morning 8–9, midday 12–13, afternoon 15–16, evening 18–19, night 21–22. The app preselects the slot matching the current time in Munich. Old share links (`weekend-day`) map to Saturday afternoon.
