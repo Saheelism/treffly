@@ -85,6 +85,7 @@ h3 { font-size: 13px; margin: 14px 0 8px; color: var(--ink2); font-weight: 600; 
 .mode-U { background: #0065ae; }
 .mode-S { background: #408335; }
 .mode-T { background: #d82020; }
+.mode-B { background: #00586a; }
 
 /* segmented controls */
 .seg { display: flex; background: var(--soft); border-radius: 13px; padding: 4px; gap: 4px; }

@@ -6,12 +6,21 @@ export interface Network {
   slots: { id: string; day: string; time: string; date: string }[];
   walk: { mPerMin: number; detour: number };
   stations: Station[];
+  /** Bus stops people can start from (not meeting points). Each has `feedK` entries in fd-<slot>.bin. */
+  stops?: { name: string; lat: number; lon: number }[];
+  feedK?: number;
+  feedChunk?: number;
 }
-export type Place = { kind: 'station'; idx: number } | { kind: 'pin'; lat: number; lon: number };
+export type Place = { kind: 'station'; idx: number } | { kind: 'stop'; idx: number } | { kind: 'pin'; lat: number; lon: number };
+/** Bus stop -> station table for one time slot: hub index (65535 = none) and minutes, `feedK` per stop. */
+export interface Feed { hub: Uint16Array; min: Uint8Array; k: number }
+/** One way to reach a station from a start point: walk there, or walk to a bus stop and ride (`stop`, entry `k`). */
+export interface Access { idx: number; min: number; walk: number; stop?: number; k?: number }
 export interface Person { id: number; name: string; place: Place | null; label: string }
 export interface Result { idx: number; times: number[]; max: number; min: number; spread: number; total: number; score: number; withinCap: boolean }
 
 const ACCESS_M = 1500; // furthest we let someone walk to their first station
+const STOP_M = 600; // furthest we let someone walk to a bus stop
 
 export function distM(aLat: number, aLon: number, bLat: number, bLon: number) {
   const R = 6371000, r = Math.PI / 180;
@@ -21,23 +30,43 @@ export function distM(aLat: number, aLon: number, bLat: number, bLon: number) {
 }
 
 export class Planner {
-  constructor(public net: Network, public tt: Uint8Array) {}
+  constructor(public net: Network, public tt: Uint8Array, public feed: Feed | null = null) {}
   get H() { return this.net.stations.length; }
 
   walkMin(m: number) { return (m * this.net.walk.detour) / this.net.walk.mPerMin; }
 
-  /** Stations a person can walk to, with walking minutes. */
-  access(p: Place): { idx: number; walk: number }[] {
+  coords(p: Place) {
+    if (p.kind === 'station') return this.net.stations[p.idx];
+    if (p.kind === 'stop') return this.net.stops![p.idx];
+    return p;
+  }
+
+  /** Ways to reach the first station: walking to nearby stations, or walking to a bus stop and riding the bus. */
+  access(p: Place): Access[] {
     const st = this.net.stations;
-    const lat = p.kind === 'station' ? st[p.idx].lat : p.lat;
-    const lon = p.kind === 'station' ? st[p.idx].lon : p.lon;
-    const out: { idx: number; walk: number }[] = [];
+    const { lat, lon } = this.coords(p);
+    const out: Access[] = [];
     for (let i = 0; i < st.length; i++) {
       const d = distM(lat, lon, st[i].lat, st[i].lon);
-      if (d <= ACCESS_M) out.push({ idx: i, walk: p.kind === 'station' && i === p.idx ? 0 : this.walkMin(d) });
+      if (d <= ACCESS_M) { const w = p.kind === 'station' && i === p.idx ? 0 : this.walkMin(d); out.push({ idx: i, min: w, walk: w }); }
     }
     out.sort((a, b) => a.walk - b.walk);
-    return out.slice(0, 6);
+    const res = out.slice(0, 6);
+    const f = this.feed, stops = this.net.stops;
+    if (f && stops && p.kind !== 'station') {
+      const near: { s: number; walk: number }[] = [];
+      if (p.kind === 'stop') near.push({ s: p.idx, walk: 0 });
+      else stops.forEach((s, i) => { const d = distM(lat, lon, s.lat, s.lon); if (d <= STOP_M) near.push({ s: i, walk: this.walkMin(d) }); });
+      near.sort((a, b) => a.walk - b.walk);
+      for (const n of near.slice(0, 3)) {
+        for (let k = 0; k < f.k; k++) {
+          const h = f.hub[n.s * f.k + k];
+          if (h === 65535) break;
+          res.push({ idx: h, min: n.walk + f.min[n.s * f.k + k], walk: n.walk, stop: n.s, k });
+        }
+      }
+    }
+    return res;
   }
 
   nearestStation(lat: number, lon: number) {
@@ -54,10 +83,10 @@ export class Planner {
       for (let m = 0; m < H; m++) {
         const v = this.tt[a.idx * H + m];
         if (v === 255) continue;
-        const t = a.walk + v;
+        const t = a.min + v;
         if (t < res[m]) res[m] = t;
       }
-      if (a.walk < res[a.idx]) res[a.idx] = a.walk; // walk straight there
+      if (a.min < res[a.idx]) res[a.idx] = a.min; // the first station itself
     }
     return res;
   }

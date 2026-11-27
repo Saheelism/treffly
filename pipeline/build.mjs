@@ -1,6 +1,7 @@
 // Builds Treffly's station-to-station travel-time tables from an unzipped GTFS feed.
 // Usage: node pipeline/build.mjs <gtfs-dir> <out-dir>
-// Output: <out-dir>/network.json (stations + metadata) and <out-dir>/tt-<slot>.bin (Uint8 minutes, 255 = unreachable)
+// Output: <out-dir>/network.json (stations, bus stops, metadata), <out-dir>/tt-<slot>.bin (Uint8 minutes, 255 = unreachable),
+// <out-dir>/fd-<slot>.bin (bus stop -> nearest stations), paths/<slot>/<hub>.json and paths/<slot>/s<chunk>.json (routes)
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -255,6 +256,19 @@ const isHub = stList.map((s) => inBox(HUB_BOX, s.lat, s.lon) && [...s.modes].som
 const hubIdx = [];
 isHub.forEach((h, i) => { if (h) hubIdx.push(i); });
 console.log(`${N} stations in network, ${hubIdx.length} hubs`);
+// Bus stops people can start from: every other served stop in the city box. They are not meeting points.
+// A stop with the same name as a station within 300 m is left out (it is the same place).
+const FEED_K = 8; // hubs stored per bus stop
+const FEED_MAX_MIN = 40; // furthest bus ride we look at to reach a station
+const FEED_CHUNK = 100; // bus stops per path file
+const feederIdx = [];
+stList.forEach((s, i) => {
+  if (isHub[i] || !inBox(HUB_BOX, s.lat, s.lon)) return;
+  const n = normName(s.name);
+  if (hubIdx.some((h) => normName(stList[h].name) === n && distM(s.lat, s.lon, stList[h].lat, stList[h].lon) < 300)) return;
+  feederIdx.push(i);
+});
+console.log(`${feederIdx.length} bus stops as starting points`);
 // footpaths via grid
 const cell = 0.006;
 const grid = new Map();
@@ -301,12 +315,33 @@ slotDates.forEach((slot, si) => {
   const samples = [];
   for (let t = slot.start; t < slot.start + slot.window; t += slot.step) samples.push(t);
   const out = new Uint8Array(H * H).fill(255);
+  // first connection index with dep >= t (binary search)
+  const firstAt = (t) => { let lo = 0, hi = M; while (lo < hi) { const mid = (lo + hi) >> 1; if (dep[mid] < t) lo = mid + 1; else hi = mid; } return lo; };
+  // Earliest arrival from src leaving at t0, scanning connections up to `limit`. Fills ea, pFrom, pTrip.
+  function scan(src, t0, limit) {
+    ea.fill(Infinity); onTrip.fill(0); pFrom.fill(-1); pTrip.fill(-1);
+    ea[src] = t0;
+    for (let f = 0; f < foot[src].length; f += 2) { const j = foot[src][f]; const w = t0 + foot[src][f + 1]; if (w < ea[j]) { ea[j] = w; pFrom[j] = src; pTrip[j] = -1; } }
+    for (let k = firstAt(t0); k < M && dep[k] <= limit; k++) {
+      const a = from[k];
+      const tr = trip[k];
+      if (onTrip[tr] || ea[a] + (a === src && ea[a] === t0 ? 0 : TRANSFER_MIN) <= dep[k]) {
+        if (!onTrip[tr]) { onTrip[tr] = 1; boardAt[tr] = a; }
+        const b = to[k];
+        if (arr[k] < ea[b]) {
+          ea[b] = arr[k]; pFrom[b] = boardAt[tr]; pTrip[b] = tr;
+          const fp = foot[b];
+          for (let f = 0; f < fp.length; f += 2) { const j = fp[f]; const w = arr[k] + fp[f + 1]; if (w < ea[j]) { ea[j] = w; pFrom[j] = b; pTrip[j] = -1; } }
+        }
+      }
+    }
+  }
   // Walk back from a target to the source and return legs: [route, station, station, ...] for rides, [-1, from, to] for walks.
-  function tracePath(source, target) {
+  function tracePath(source, target, pF = pFrom, pT = pTrip) {
     const legs = [];
     let t = target, guard = 0;
     while (t !== source && t >= 0 && guard++ < 60) {
-      const f = pFrom[t], tr = pTrip[t];
+      const f = pF[t], tr = pT[t];
       if (f < 0) return [];
       if (tr < 0) legs.push([-1, f, t]);
       else {
@@ -325,30 +360,13 @@ slotDates.forEach((slot, si) => {
     }
     return merged;
   }
-  // first connection index with dep >= t (binary search)
-  const firstAt = (t) => { let lo = 0, hi = M; while (lo < hi) { const mid = (lo + hi) >> 1; if (dep[mid] < t) lo = mid + 1; else hi = mid; } return lo; };
+  const compact = (legs) => legs.map(([r, ...st]) => [r, ...st.map(nodeOf)]);
   for (let hi = 0; hi < H; hi++) {
     const src = hubIdx[hi];
     const res = Array.from({ length: H }, () => []);
     const pathsBySample = Array.from({ length: H }, () => []);
     for (const t0 of samples) {
-      ea.fill(Infinity); onTrip.fill(0); pFrom.fill(-1); pTrip.fill(-1);
-      ea[src] = t0;
-      for (let f = 0; f < foot[src].length; f += 2) { const j = foot[src][f]; const w = t0 + foot[src][f + 1]; if (w < ea[j]) { ea[j] = w; pFrom[j] = src; pTrip[j] = -1; } }
-      const limit = t0 + MAX_TRIP_MIN;
-      for (let k = firstAt(t0); k < M && dep[k] <= limit; k++) {
-        const a = from[k];
-        const tr = trip[k];
-        if (onTrip[tr] || ea[a] + (a === src && ea[a] === t0 ? 0 : TRANSFER_MIN) <= dep[k]) {
-          if (!onTrip[tr]) { onTrip[tr] = 1; boardAt[tr] = a; }
-          const b = to[k];
-          if (arr[k] < ea[b]) {
-            ea[b] = arr[k]; pFrom[b] = boardAt[tr]; pTrip[b] = tr;
-            const fp = foot[b];
-            for (let f = 0; f < fp.length; f += 2) { const j = fp[f]; const w = arr[k] + fp[f + 1]; if (w < ea[j]) { ea[j] = w; pFrom[j] = b; pTrip[j] = -1; } }
-          }
-        }
-      }
+      scan(src, t0, t0 + MAX_TRIP_MIN);
       for (let hj = 0; hj < H; hj++) {
         const v = ea[hubIdx[hj]] - t0;
         res[hj].push(Number.isFinite(v) ? v : Infinity);
@@ -365,10 +383,52 @@ slotDates.forEach((slot, si) => {
     }
     const dir = path.join(OUT_DIR, 'paths', slot.id);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, `${hi}.json`), JSON.stringify(srcPaths.map((legs) => legs.map(([r, ...st]) => [r, ...st.map(nodeOf)]))));
+    fs.writeFileSync(path.join(dir, `${hi}.json`), JSON.stringify(srcPaths.map(compact)));
     if (hi % 50 === 0) console.log(`  ${hi}/${H}`);
   }
   fs.writeFileSync(path.join(OUT_DIR, `tt-${slot.id}.bin`), out);
+
+  // 5b. bus stops: for each, the FEED_K hubs reached fastest (median over departures, incl. waiting) and the route there.
+  // Output: fd-<slot>.bin = Uint16 hub index (65535 = none) for F*K entries, then Uint8 minutes for F*K entries.
+  const F = feederIdx.length;
+  const feedHub = new Uint16Array(F * FEED_K).fill(65535);
+  const feedMin = new Uint8Array(F * FEED_K).fill(255);
+  let chunk = [], noAccess = 0;
+  const dir = path.join(OUT_DIR, 'paths', slot.id);
+  for (let fi = 0; fi < F; fi++) {
+    const src = feederIdx[fi];
+    const res = Array.from({ length: H }, () => []);
+    const saved = [];
+    for (const t0 of samples) {
+      scan(src, t0, t0 + FEED_MAX_MIN);
+      saved.push([pFrom.slice(), pTrip.slice()]);
+      for (let hj = 0; hj < H; hj++) res[hj].push(ea[hubIdx[hj]] - t0);
+    }
+    const best = [];
+    for (let hj = 0; hj < H; hj++) {
+      const order = res[hj].map((v, i) => [v, i]).sort((x, y) => x[0] - y[0]);
+      const [v, si2] = order[Math.floor(order.length / 2)];
+      if (Number.isFinite(v)) best.push([v, si2, hj]);
+    }
+    best.sort((x, y) => x[0] - y[0]);
+    const paths = [];
+    best.slice(0, FEED_K).forEach(([v, si2, hj], k) => {
+      feedHub[fi * FEED_K + k] = hj;
+      feedMin[fi * FEED_K + k] = Math.min(254, Math.round(v));
+      paths.push(compact(tracePath(src, hubIdx[hj], ...saved[si2])));
+    });
+    if (!best.length) noAccess++;
+    chunk.push(paths);
+    if (chunk.length === FEED_CHUNK || fi === F - 1) {
+      fs.writeFileSync(path.join(dir, `s${Math.floor(fi / FEED_CHUNK)}.json`), JSON.stringify(chunk));
+      chunk = [];
+    }
+  }
+  const fd = new Uint8Array(F * FEED_K * 3);
+  fd.set(new Uint8Array(feedHub.buffer), 0);
+  fd.set(feedMin, F * FEED_K * 2);
+  fs.writeFileSync(path.join(OUT_DIR, `fd-${slot.id}.bin`), fd);
+  console.log(`Slot ${slot.id}: ${F} bus stops, ${noAccess} without a station within ${FEED_MAX_MIN} min`);
 });
 
 // ---------- 6. route geometry for the map ----------
@@ -390,5 +450,8 @@ fs.writeFileSync(path.join(OUT_DIR, 'network.json'), JSON.stringify({
   slots: slotDates.map((s) => ({ id: s.id, day: s.day, time: s.time, date: s.date })),
   walk: { mPerMin: WALK_M_PER_MIN, detour: WALK_DETOUR },
   stations,
+  feedK: FEED_K,
+  feedChunk: FEED_CHUNK,
+  stops: feederIdx.map((i) => { const s = stList[i]; return { name: s.name, lat: +s.lat.toFixed(5), lon: +s.lon.toFixed(5) }; }),
 }));
 console.log('Done');

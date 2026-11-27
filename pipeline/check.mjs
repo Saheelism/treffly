@@ -123,6 +123,31 @@ for (const g of dups.slice(0, 30)) {
   if (far < 400) notes.push(`Duplicate station "${st[g[0]].name}" (${g.length} entries within ${Math.round(far)} m)`);
 }
 
+// 4. bus stops (starting points only): every stop should reach some station in every slot
+const stops = net.stops || [];
+const K = net.feedK || 0;
+say(`\n## Bus stops: ${stops.length}`);
+if (stops.length && K) {
+  for (const s of net.slots) {
+    const file = path.join(DIR, `fd-${s.id}.bin`);
+    if (!fs.existsSync(file)) { problems.push(`fd-${s.id}.bin is missing`); continue; }
+    const buf = fs.readFileSync(file);
+    if (buf.length !== stops.length * K * 3) { problems.push(`fd-${s.id}.bin has ${buf.length} bytes, expected ${stops.length * K * 3}`); continue; }
+    let none = 0, bad = 0, firstSum = 0;
+    for (let f = 0; f < stops.length; f++) {
+      const h = buf.readUInt16LE(f * K * 2), m = buf[stops.length * K * 2 + f * K];
+      if (h === 65535) { none++; continue; }
+      if (h >= H) bad++;
+      firstSum += m;
+    }
+    const share = none / stops.length;
+    if (s.id === refSlot || share > 0.05) say(`- ${s.id}: ${(share * 100).toFixed(1)} % without a station, average ${(firstSum / Math.max(1, stops.length - none)).toFixed(1)} min to the nearest one`);
+    if (bad) problems.push(`${s.id}: ${bad} bus stops point to a station that does not exist`);
+    if (share > 0.2) problems.push(`${s.id}: ${(share * 100).toFixed(1)} % of bus stops reach no station within the limit`);
+    else if (share > 0.05) notes.push(`${s.id}: ${(share * 100).toFixed(1)} % of bus stops reach no station`);
+  }
+}
+
 say(`\n## Result: ${problems.length ? 'FAILED' : 'OK'}`);
 for (const p of problems) say(`- ❌ ${p}`);
 for (const n of notes) say(`- ⚠️ ${n}`);

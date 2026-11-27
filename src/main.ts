@@ -2,7 +2,7 @@ import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import './style.css';
-import { Planner, type Network, type Person, type Place, type Result, distM } from './fair';
+import { Planner, type Feed, type Network, type Access, type Person, type Place, type Result, distM } from './fair';
 import { dict, detectLang, type Lang } from './i18n';
 
 // ---------- state ----------
@@ -27,6 +27,7 @@ const S = {
   planner: null as Planner | null,
   net: null as Network | null,
   tts: new Map<string, Uint8Array>(),
+  feeds: new Map<string, Feed | null>(),
   venues: null as Venue[][] | null,
   loadError: false,
 };
@@ -45,7 +46,7 @@ function keysOf(i: number, name: string) {
   if (!k) { const f = fold(name); const c = canon(f); k = [f, c, c.replace(/ /g, '')]; searchKeys.set(i, k); }
   return k;
 }
-const modeBadges = (modes: string) => [...modes].map((m) => `<span class="mode mode-${m}">${m === 'T' ? 'Tram' : m}</span>`).join('');
+const modeBadges = (modes: string) => [...modes].map((m) => `<span class="mode mode-${m}">${m === 'T' ? 'Tram' : m === 'B' ? 'Bus' : m}</span>`).join('');
 const color = (p: Person) => COLORS[(p.id - 1) % COLORS.length];
 function toast(msg: string) {
   const el = document.getElementById('toast')!;
@@ -55,8 +56,8 @@ function toast(msg: string) {
   (toast as any)._t = setTimeout(() => el.classList.remove('show'), 2800);
 }
 function placeLatLon(p: Place) {
-  const st = S.net!.stations;
-  return p.kind === 'station' ? { lat: st[p.idx].lat, lon: st[p.idx].lon } : { lat: p.lat, lon: p.lon };
+  const c = p.kind === 'station' ? S.net!.stations[p.idx] : p.kind === 'stop' ? S.net!.stops![p.idx] : p;
+  return { lat: c.lat, lon: c.lon };
 }
 function addPerson(name?: string, place: Place | null = null, label = '') {
   if (S.people.length >= MAX_PEOPLE) return null;
@@ -203,12 +204,12 @@ function clearLineBadges() { lineBadges.forEach((m) => m.remove()); lineBadges =
 /** Which station a person walks to first for a given meeting station, and the walk minutes. */
 function bestAccess(p: Place, m: number) {
   const H = S.planner!.H;
-  let best: { idx: number; walk: number; total: number } | null = null;
+  let best: (Access & { total: number }) | null = null;
   for (const a of S.planner!.access(p)) {
     const v = a.idx === m ? 0 : S.planner!.tt[a.idx * H + m];
     if (v === 255) continue;
-    const total = a.walk + v;
-    if (!best || total < best.total) best = { idx: a.idx, walk: a.walk, total };
+    const total = a.min + v;
+    if (!best || total < best.total) best = { ...a, total };
   }
   return best;
 }
@@ -218,20 +219,33 @@ function routeFor(p: Person, m: number): { access: number; legs: Leg[] } | null 
   if (!p.place || !S.planner) return null;
   const acc = bestAccess(p.place, m);
   if (!acc) return null;
-  if (acc.idx === m) return { access: acc.idx, legs: [] };
-  const key = `${S.slot}/${acc.idx}`;
-  const c = pathCache.get(key);
   if (!geo && !geoLoading) {
     geoLoading = true;
     fetch(`${BASE}data/geo.json`).then((r) => (r.ok ? r.json() : null)).then((g) => { geo = g; render(); drawMap(false); }).catch(() => {});
   }
+  // bus ride from the stop to the first station (paths/<slot>/s<chunk>.json, one list per stop)
+  let bus: Leg[] = [];
+  if (acc.stop !== undefined) {
+    const size = S.net!.feedChunk || 100;
+    const c = pathFile(`${S.slot}/s${Math.floor(acc.stop / size)}`) as unknown as Leg[][][] | null;
+    if (!c) return null;
+    bus = c[acc.stop % size]?.[acc.k!] || [];
+  }
+  if (acc.idx === m) return geo ? { access: acc.idx, legs: bus } : null;
+  const c = pathFile(`${S.slot}/${acc.idx}`);
+  if (!c || !geo) return null;
+  return { access: acc.idx, legs: [...bus, ...(c[m] || [])] };
+}
+
+/** A route file, or null while it loads (a redraw follows when it arrives). */
+function pathFile(key: string): Leg[][] | null {
+  const c = pathCache.get(key);
   if (c === undefined) {
     pathCache.set(key, 'loading');
     fetch(`${BASE}data/paths/${key}.json`).then((r) => (r.ok ? r.json() : [])).then((d) => { pathCache.set(key, d); render(); drawMap(false); }).catch(() => pathCache.delete(key));
     return null;
   }
-  if (c === 'loading' || !geo) return null;
-  return { access: acc.idx, legs: c[m] || [] };
+  return c === 'loading' ? null : c;
 }
 
 function drawRoutes(m: number, feats: any[]) {
@@ -315,7 +329,14 @@ async function loadSlot(id: string) {
     if (!res.ok) throw new Error('tt');
     S.tts.set(id, new Uint8Array(await res.arrayBuffer()));
   }
-  S.planner = new Planner(S.net!, S.tts.get(id)!);
+  const F = S.net!.stops?.length || 0, K = S.net!.feedK || 0;
+  if (F && K && !S.feeds.has(id)) {
+    // bus stops: optional, the app still works with stations only if this file is missing
+    const res = await fetch(`${BASE}data/fd-${id}.bin`).catch(() => null);
+    const buf = res?.ok ? await res.arrayBuffer() : null;
+    S.feeds.set(id, buf && buf.byteLength === F * K * 3 ? { hub: new Uint16Array(buf, 0, F * K), min: new Uint8Array(buf, F * K * 2, F * K), k: K } : null);
+  }
+  S.planner = new Planner(S.net!, S.tts.get(id)!, S.feeds.get(id) || null);
 }
 
 // ---------- share links ----------
@@ -323,9 +344,9 @@ function writeHash() {
   if (!S.net) return;
   const ps = S.people.filter((p) => p.place).map((p) => {
     const { lat, lon } = placeLatLon(p.place!);
-    const ns = S.planner!.nearestStation(lat, lon); // only the nearest station is shared
-    const s = S.net!.stations[ns.idx];
-    return `${encodeURIComponent(p.name)}~${s.lat.toFixed(4)}~${s.lon.toFixed(4)}`;
+    // Only a stop is shared: the bus stop someone picked from the list, otherwise the nearest station (never a map pin).
+    const s = p.place!.kind === 'stop' ? S.net!.stops![p.place!.idx] : S.net!.stations[S.planner!.nearestStation(lat, lon).idx];
+    return `${encodeURIComponent(p.name)}~${s.lat.toFixed(5)}~${s.lon.toFixed(5)}`;
   });
   const h = `s=${S.slot}&c=${S.cap}${ps.length ? `&p=${ps.join(',')}` : ''}`;
   history.replaceState(null, '', `#${h}`);
@@ -342,9 +363,18 @@ function readHash() {
     const [n, la, lo] = part.split('~');
     if (!la || !lo) continue;
     const ns = S.planner!.nearestStation(+la, +lo);
-    addPerson(decodeURIComponent(n || ''), { kind: 'station', idx: ns.idx }, S.net!.stations[ns.idx].name);
+    const stop = ns.dist > 15 ? nearestStop(+la, +lo) : null;
+    if (stop) addPerson(decodeURIComponent(n || ''), { kind: 'stop', idx: stop.idx }, S.net!.stops![stop.idx].name);
+    else addPerson(decodeURIComponent(n || ''), { kind: 'station', idx: ns.idx }, S.net!.stations[ns.idx].name);
   }
   return S.people.length > 0;
+}
+
+/** The bus stop at a shared position (within 15 m), if any. */
+function nearestStop(lat: number, lon: number) {
+  let best: { idx: number; d: number } | null = null;
+  (S.net!.stops || []).forEach((s, i) => { const d = distM(lat, lon, s.lat, s.lon); if (d < 15 && (!best || d < best.d)) best = { idx: i, d }; });
+  return best as { idx: number; d: number } | null;
 }
 
 // ---------- render ----------
@@ -410,18 +440,21 @@ function suggestions(pid: number) {
   const q = fold(S.query);
   if (q.length < 2) return '';
   const qs = [q, canon(q), canon(q).replace(/ /g, '')];
+  // stations first, then bus stops (search index H + i); stations win when equally good
+  const H = S.net!.stations.length;
+  const all = [...S.net!.stations.map((s) => ({ name: s.name, modes: s.modes })), ...(S.planner?.feed ? S.net!.stops || [] : []).map((s) => ({ name: s.name, modes: 'B' }))];
   let sug: { i: number; s: number }[] = [];
-  S.net!.stations.forEach((st, i) => {
+  all.forEach((st, i) => {
     let best = Infinity;
     for (const f of keysOf(i, st.name)) for (const v of qs) {
       const pos = f.indexOf(v);
       if (pos >= 0) best = Math.min(best, pos === 0 ? 0 : f.includes(' ' + v) ? 1 : 2 + pos / 100);
     }
-    if (best < Infinity) sug.push({ i, s: best });
+    if (best < Infinity) sug.push({ i, s: best + (i >= H ? 0.5 : 0) });
   });
-  sug.sort((a, b) => a.s - b.s || S.net!.stations[a.i].name.length - S.net!.stations[b.i].name.length);
+  sug.sort((a, b) => a.s - b.s || all[a.i].name.length - all[b.i].name.length);
   sug = sug.slice(0, 6);
-  return sug.map((x) => `<li><button data-act="choose" data-id="${pid}" data-v="${x.i}"><span>${esc(S.net!.stations[x.i].name)}</span><span class="modes">${modeBadges(S.net!.stations[x.i].modes)}</span></button></li>`).join('');
+  return sug.map((x) => `<li><button data-act="choose" data-id="${pid}" data-v="${x.i}"><span>${esc(all[x.i].name)}</span><span class="modes">${modeBadges(all[x.i].modes)}</span></button></li>`).join('');
 }
 
 function pickerHtml(p: Person) {
@@ -525,7 +558,12 @@ panel.addEventListener('click', async (e) => {
     case 'remove': S.people = S.people.filter((x) => x.id !== id); if (S.editing === id) S.editing = null; update(); return;
     case 'edit': S.editing = S.editing === id ? null : id; S.query = ''; focusPicker = S.editing != null; render(); return;
     case 'cancel': S.editing = null; stopPicking(); render(); return;
-    case 'choose': if (p) { const i = +v; p.place = { kind: 'station', idx: i }; p.label = S.net!.stations[i].name; S.editing = null; S.query = ''; update(); afterPlaceSet(); } return;
+    case 'choose': if (p) {
+      const i = +v, H = S.net!.stations.length;
+      p.place = i < H ? { kind: 'station', idx: i } : { kind: 'stop', idx: i - H };
+      p.label = i < H ? S.net!.stations[i].name : S.net!.stops![i - H].name;
+      S.editing = null; S.query = ''; update(); afterPlaceSet();
+    } return;
     case 'geo':
       if (!p) return;
       if (!navigator.geolocation) { toast(t().geoError); return; }
