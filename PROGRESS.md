@@ -2,6 +2,14 @@
 
 Newest first. Each nightly run adds one entry: date, what changed, what to do next, anything blocked.
 
+## 2026-11-27 (nightly: bus stops as starting points)
+
+- People can now start from any MVV bus stop in the city box (1,748 stops on real data), not only rail and tram stations. Bus stops are starting points only; meeting points stay the 315 stations.
+- Pipeline: for every bus stop and slot it runs the same connection scan (up to 60 min, median over the hour incl. waiting) and keeps the 8 stations reached fastest plus the route there. Output `fd-<slot>.bin` (~42 kB each) and `paths/<slot>/s<n>.json` (100 stops per file, loaded on demand). Stops with the same name as a station within 300 m are left out. Build still ~2 min, site ~12 MB.
+- App: search shows bus stops after stations (with a "Bus" badge); a map pin or "my location" may also walk up to 600 m to a bus stop; routes and line chips include the bus (e.g. 187 › S8). Share links: a bus stop picked from the list is shared as that stop; map pins are still shared only as the nearest station.
+- Check script: new "Bus stops" section. Real data, weekday evening: 1.3 % of stops reach no station within 60 min, average 13 min to the nearest station; Sundays and nights 6–9 % (lines without service then). These people fall back to walking to a station within 1.5 km. Known pairs unchanged (Studentenstadt → Marienplatz 12, Pasing → Ostbahnhof 19).
+- Next: backlog item 4 (PWA).
+
 ## 2026-11-26 (nightly: data check, station names)
 
 - New `pipeline/check.mjs`, run as the last step of every build (a failure blocks the deploy; results also go to the Actions run summary). It prints known pairs, per-slot unreachable share, zero-minute pairs and duplicate names, and fails on missing stations, impossible values or more than 10 % unreachable pairs.

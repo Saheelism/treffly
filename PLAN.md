@@ -7,7 +7,7 @@ Live site: https://saheelism.github.io/treffly/
 
 Treffly finds the fairest place for a group (2 to 6 people) to meet in Munich by public transport.
 
-- People are added by station search, "use my location" or a tap on the map.
+- People are added by station or bus stop search, "use my location" or a tap on the map. Meeting points are rail, S-Bahn, U-Bahn and tram stations; bus stops are starting points only.
 - Time slots: Mon–Fri / Saturday / Sunday × morning, midday, afternoon, evening, night (15 slots); default follows the current time in Munich.
 - Fairness rule (decided by Saheel, do not change without asking):
   1. Nobody travels longer than the chosen limit (30 / 45 / 60 min, default 45).
@@ -40,10 +40,9 @@ Treffly finds the fairest place for a group (2 to 6 people) to meet in Munich by
 
 ## Backlog (top = next)
 
-Done: travel-time check (`pipeline/check.mjs`, runs in every build), station names and forgiving search.
+Done: travel-time check (`pipeline/check.mjs`, runs in every build), station names and forgiving search, bus stops as starting points.
 
 
-3. Bus feeders: let people start from any MVV stop (walk to the nearest bus stop counts), not only rail and tram stations.
 4. PWA: web manifest, icons, installable, offline cache of app shell and data.
 5. Link previews: Open Graph image (static PNG made at build time) and good meta tags in EN and DE.
 6. "Why this spot" line on each card and a light heat layer on the map showing where trips stay under the limit.
