@@ -259,7 +259,7 @@ console.log(`${N} stations in network, ${hubIdx.length} hubs`);
 // Bus stops people can start from: every other served stop in the city box. They are not meeting points.
 // A stop with the same name as a station within 300 m is left out (it is the same place).
 const FEED_K = 8; // hubs stored per bus stop
-const FEED_MAX_MIN = 40; // furthest bus ride we look at to reach a station
+const FEED_MAX_MIN = 60; // furthest bus ride (incl. waiting) we look at to reach a station; covers lines every 30-40 min
 const FEED_CHUNK = 100; // bus stops per path file
 const feederIdx = [];
 stList.forEach((s, i) => {
