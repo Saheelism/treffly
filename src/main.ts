@@ -386,14 +386,14 @@ function render() {
   const T = t();
   document.documentElement.lang = S.lang;
   if (!S.net) {
-    panel.innerHTML = `<div class="brand"><div class="logo"><i></i><i></i><i></i></div><div><h1>Treffly</h1><p class="tag">${T.tagline}</p></div></div><p class="muted pad">${S.loadError ? T.loadError : T.loading}</p>`;
+    panel.innerHTML = `<div class="brand"><img class="logo" src="${BASE}icons/icon.svg" alt="" /><div><h1>Treffly</h1><p class="tag">${T.tagline}</p></div></div><p class="muted pad">${S.loadError ? T.loadError : T.loading}</p>`;
     return;
   }
   const allSet = S.people.length >= 2 && S.people.every((p) => p.place);
   const r = S.results;
   panel.innerHTML = `
     <header class="brand">
-      <div class="logo" aria-hidden="true"><i></i><i></i><i></i></div>
+      <img class="logo" src="${BASE}icons/icon.svg" alt="" />
       <div><h1>Treffly</h1><p class="tag">${T.tagline}</p></div>
       <div class="lang" role="group" aria-label="Language">
         <button data-act="lang" data-v="en" class="${S.lang === 'en' ? 'on' : ''}">EN</button><button data-act="lang" data-v="de" class="${S.lang === 'de' ? 'on' : ''}">DE</button>
@@ -414,7 +414,7 @@ function render() {
         <h3>${T.maxTime}</h3>
         <div class="seg small">${CAPS.map((c) => `<button data-act="cap" data-v="${c}" class="${S.cap === c ? 'on' : ''}">${c} ${T.min}</button>`).join('')}</div>
       </section>
-      <footer><button class="link" data-act="about">${T.about}</button><span>·</span><span>Timetable © MVV · Map © OpenStreetMap</span></footer>
+      <footer><div class="links"><button class="link" data-act="about">${T.about}</button>${installPrompt ? `<span>·</span><button class="link" data-act="install">${T.install}</button>` : ''}</div><span>Timetable © MVV · Map © OpenStreetMap</span></footer>
     </div>`;
   const inp = panel.querySelector<HTMLInputElement>('.picker input');
   if (inp && focusPicker) { focusPicker = false; inp.focus({ preventScroll: true }); inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
@@ -582,6 +582,11 @@ panel.addEventListener('click', async (e) => {
     case 'vtype': S.vtype = v as VType; render(); drawMap(false); return;
     case 'venue': map.flyTo({ center: [+b.dataset.lon!, +b.dataset.lat!], zoom: 16.5, duration: 800 }); return;
     case 'share': await share(); return;
+    case 'install': {
+      const ev = installPrompt; installPrompt = null; render();
+      if (ev) { await ev.prompt(); await ev.userChoice.catch(() => null); }
+      return;
+    }
     case 'about': { const d = document.getElementById('about') as HTMLDialogElement; d.innerHTML = aboutHtml(); d.showModal(); return; }
   }
 });
@@ -616,6 +621,24 @@ async function share() {
 }
 
 document.getElementById('pickcancel')!.addEventListener('click', () => { stopPicking(); render(); });
+
+// ---------- install & offline ----------
+// Browsers that support it (Chrome, Edge, Android) offer "Install app"; iPhone users use Share › Add to Home Screen.
+type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<unknown> };
+let installPrompt: InstallEvent | null = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e as InstallEvent; render(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; render(); });
+// The service worker only caches this site's own files for offline use; nothing is sent anywhere.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(`${BASE}sw.js`).catch(() => {});
+    // On the first visit the worker starts after the data has loaded: tell it which files to keep.
+    navigator.serviceWorker.ready.then((reg) => {
+      const urls = performance.getEntriesByType('resource').map((e) => e.name).filter((u) => u.startsWith(new URL(`${BASE}data/`, location.href).href));
+      reg.active?.postMessage({ keep: urls });
+    });
+  });
+}
 
 // ---------- boot ----------
 render();
