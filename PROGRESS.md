@@ -2,6 +2,15 @@
 
 Newest first. Each nightly run adds one entry: date, what changed, what to do next, anything blocked.
 
+## 2026-11-28 (nightly: installable app, works offline)
+
+- Treffly can now be installed to the home screen (Android/Chrome/Edge show an "Install app" link in the footer; on iPhone it is Share › Add to Home Screen) and works offline.
+- New icon: three people (coral, blue, yellow) joined at one white meeting point on the navy brand colour. SVG plus PNG 192/512, maskable 512 and Apple touch icon (180). The in-app logo now uses the same icon. `public/manifest.webmanifest` added.
+- Service worker `sw.js` is written at build time by a small Vite plugin (`vite.config.ts`, template `pipeline/sw-template.js`). App files (hashed names) come from the cache; the page and all data are network first, cache only as offline fallback. Install keeps network, geo and venues; every slot/route file a visitor uses is kept too (including those loaded on the first visit, before the worker ran). The cache name is a hash of app + data, so each deploy replaces it and old and new timetable data never mix. Map tiles are not cached (OpenFreeMap is left as it was); offline the map is blank but search and results work.
+- Privacy text (EN/DE) now says the app and timetable are kept in the browser cache. Nothing is sent anywhere.
+- Tested with Playwright: worker registers, offline reload shows the app with both people and the travel times; iPhone 13 flow (two stations → 3 cards → Share) unchanged. Actions run green and deployed.
+- Next: backlog item 5 (link previews / Open Graph image).
+
 ## 2026-11-27 (nightly: bus stops as starting points)
 
 - People can now start from any MVV bus stop in the city box (1,748 stops on real data), not only rail and tram stations. Bus stops are starting points only; meeting points stay the 315 stations.

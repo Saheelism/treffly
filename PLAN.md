@@ -40,10 +40,8 @@ Treffly finds the fairest place for a group (2 to 6 people) to meet in Munich by
 
 ## Backlog (top = next)
 
-Done: travel-time check (`pipeline/check.mjs`, runs in every build), station names and forgiving search, bus stops as starting points.
+Done: travel-time check (`pipeline/check.mjs`, runs in every build), station names and forgiving search, bus stops as starting points, PWA (installable, works offline).
 
-
-4. PWA: web manifest, icons, installable, offline cache of app shell and data.
 5. Link previews: Open Graph image (static PNG made at build time) and good meta tags in EN and DE.
 6. "Why this spot" line on each card and a light heat layer on the map showing where trips stay under the limit.
 7. Accessibility: keyboard navigation for suggestions, focus states, ARIA labels, contrast check.
